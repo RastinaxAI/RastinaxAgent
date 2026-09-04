@@ -75,7 +75,7 @@ DEBUG=True
 SECRET_KEY=یک-کلید-طولانی-و-تصادفی
 
 DB_NAME=rastinax_agent_db
-DB_USER=rastinax_agent_user
+DB_USER=admin_ai
 DB_PASSWORD=رمز-پایگاه-داده
 DB_HOST=127.0.0.1
 DB_PORT=5432

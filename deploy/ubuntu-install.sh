@@ -75,6 +75,11 @@ echo "==> اجرای migration و جمع‌آوری static"
 (
     cd "$APP_DIR/Server"
     "$APP_DIR/.venv-server/bin/python" manage.py check
+    if ! DJANGO_SETTINGS_MODULE=config.settings \
+        "$APP_DIR/.venv-server/bin/python" -c \
+        'import django; django.setup(); from django.db import connection; connection.ensure_connection(); print("PostgreSQL connection: OK")'; then
+        fail "اتصال PostgreSQL برقرار نشد. برای اصلاح رمز، اجرا کنید: sudo bash deploy/fix-database-auth.sh"
+    fi
     "$APP_DIR/.venv-server/bin/python" manage.py migrate
     "$APP_DIR/.venv-server/bin/python" manage.py collectstatic --noinput
 )

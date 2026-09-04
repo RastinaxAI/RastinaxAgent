@@ -141,6 +141,19 @@ sudo bash deploy/ubuntu-install.sh
 اگر در مرحله‌ی migration خطای password دیدید، مقدار `DB_PASSWORD` در
 `Server/.env` اشتباه است. آن را اصلاح کنید و اسکریپت را دوباره اجرا کنید.
 
+اگر رمز فعلی را نمی‌دانید، روی همان سرور Ubuntu این دستور را اجرا کنید. اسکریپت
+رمز role را عوض می‌کند، همان رمز را در `Server/.env` می‌نویسد و migration را
+دوباره اجرا می‌کند:
+
+```bash
+cd /var/www/rastinax-agent
+sudo bash deploy/fix-database-auth.sh
+```
+
+برای رمز جدید فقط حروف انگلیسی، عدد، نقطه، خط تیره یا زیرخط استفاده کنید.
+اگر هنگام سؤال رمز، فقط Enter بزنید، یک رمز امن به‌صورت خودکار تولید می‌شود؛
+آن را در محل امن ذخیره کنید.
+
 ## مرحله ۵: تست نهایی
 
 پس از پایان موفق اسکریپت، این آدرس‌ها را در مرورگر باز کنید:
@@ -221,6 +234,13 @@ DB_USER=admin_ai
 DB_PASSWORD=رمز-واقعی-admin_ai
 DB_HOST=127.0.0.1
 DB_PORT=5432
+```
+
+راه سریع اصلاح همین خطا:
+
+```bash
+cd /var/www/rastinax-agent
+sudo bash deploy/fix-database-auth.sh
 ```
 
 اگر PostgreSQL روی سرور دیگری است، فقط `DB_HOST` را به IP یا hostname همان

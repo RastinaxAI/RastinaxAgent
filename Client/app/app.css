@@ -12,62 +12,62 @@
 }
 
 @theme {
-  --font-en: "B Yekan", "Space Grotesk", sans-serif;
-  --font-fa: "B Yekan", "Vazirmatn", sans-serif;
+  --font-en: "Space Grotesk", sans-serif;
+  --font-fa: "Vazirmatn", sans-serif;
 
-  --color-brand-50: #f3f4ff;
-  --color-brand-100: #e7e8ff;
-  --color-brand-200: #d2d4ff;
-  --color-brand-300: #afb4ff;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #312e81;
-  --color-brand-950: #1e1b4b;
+  --color-brand-50: #eef3ff;
+  --color-brand-100: #d9e2ff;
+  --color-brand-200: #bbc9ff;
+  --color-brand-300: #8da4ff;
+  --color-brand-400: #5c78ff;
+  --color-brand-500: #3b50e6;
+  --color-brand-600: #2a38b8;
+  --color-brand-700: #1e2c8f;
+  --color-brand-800: #1a256e;
+  --color-brand-900: #0f1747;
+  --color-brand-950: #0a0f2e;
 }
 
 :root {
-  --bg-p: #f7f9fc;
-  --bg-s: #eef3f8;
-  --bg-t: #e3ebf3;
+  --bg-p: #f8f9fa;
+  --bg-s: #f0f1f3;
+  --bg-t: #e3e5e9;
   --bg-c: #ffffff;
-  --bg-sb: #edf3f8;
+  --bg-sb: #f0f1f3;
   --bg-in: #ffffff;
-  --bg-h: #e5edf5;
-  --bg-um: #4f46e5;
-  --bg-am: #eef4f8;
-  --tx-p: #142236;
-  --tx-s: #526579;
-  --tx-m: #8b9aae;
+  --bg-h: #e3e5e9;
+  --bg-um: #1e2c8f;
+  --bg-am: #f0f1f3;
+  --tx-p: #1a1c22;
+  --tx-s: #555a64;
+  --tx-m: #939ba7;
   --tx-ob: #ffffff;
-  --bc: #dbe5ee;
-  --sc: rgba(46, 68, 90, 0.1);
-  --cbg: #122235;
-  --ctx: #d7f3ff;
-  --stb: #b8c8d7;
+  --bc: #e3e5e9;
+  --sc: rgba(0, 0, 0, 0.06);
+  --cbg: #1a1c22;
+  --ctx: #d9e2ff;
+  --stb: #cdd1d7;
 }
 
 .dark {
-  --bg-p: #0b1220;
-  --bg-s: #101b2d;
-  --bg-t: #17263a;
-  --bg-c: #0f1a2b;
-  --bg-sb: #0e1929;
-  --bg-in: #101c2e;
-  --bg-h: #1a2c43;
-  --bg-um: #6366f1;
-  --bg-am: #15253a;
-  --tx-p: #edf4fb;
-  --tx-s: #b7c7d8;
-  --tx-m: #718399;
+  --bg-p: #0d0f14;
+  --bg-s: #14171e;
+  --bg-t: #1e222c;
+  --bg-c: #0d0f14;
+  --bg-sb: #14171e;
+  --bg-in: #14171e;
+  --bg-h: #1e222c;
+  --bg-um: #2a38b8;
+  --bg-am: #14171e;
+  --tx-p: #e8eaf0;
+  --tx-s: #b0b6bf;
+  --tx-m: #656b77;
   --tx-ob: #ffffff;
-  --bc: #243a52;
-  --sc: rgba(1, 8, 20, 0.45);
-  --cbg: #07111f;
-  --ctx: #c7efff;
-  --stb: #38506a;
+  --bc: #252a35;
+  --sc: rgba(0, 0, 0, 0.4);
+  --cbg: #080a0e;
+  --ctx: #bbc9ff;
+  --stb: #3a3f4b;
 }
 
 @layer base {
@@ -113,11 +113,11 @@
 }
 
 [dir="rtl"] {
-  font-family: "B Yekan", "Vazirmatn", sans-serif;
+  font-family: "Vazirmatn", sans-serif;
 }
 
 [dir="ltr"] {
-  font-family: "B Yekan", "Space Grotesk", sans-serif;
+  font-family: "Space Grotesk", sans-serif;
 }
 
 .fa-solid,
@@ -156,7 +156,7 @@
   flex-direction: column;
   overflow: hidden;
   border-color: var(--bc);
-  background: linear-gradient(180deg, var(--bg-sb), var(--bg-s));
+  background: var(--bg-sb);
   transition:
     width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -250,15 +250,7 @@
   height: 100%;
   flex: 1 1 0%;
   flex-direction: column;
-  background:
-    radial-gradient(circle at 76% 0%, rgba(99, 102, 241, 0.08), transparent 32%),
-    var(--bg-p);
-}
-
-.dark .main-area {
-  background:
-    radial-gradient(circle at 76% 0%, rgba(129, 140, 248, 0.14), transparent 34%),
-    var(--bg-p);
+  background: var(--bg-p);
 }
 
 .hdr-icon {
@@ -292,7 +284,7 @@
   border-color: var(--color-brand-500);
   box-shadow:
     0 -4px 30px var(--sc),
-    0 0 0 2px rgba(99, 102, 241, 0.18);
+    0 0 0 2px rgba(59, 80, 230, 0.15);
 }
 
 .input-field {
@@ -996,22 +988,12 @@
 }
 
 .plan-cta-primary {
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-600),
-    var(--color-brand-500) 55%,
-    #06b6d4
-  );
+  background: var(--color-brand-500);
   color: #ffffff;
 }
 
 .plan-cta-primary:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-700),
-    var(--color-brand-600) 55%,
-    #0891b2
-  );
+  background: var(--color-brand-600);
 }
 
 .plan-cta-secondary {
@@ -1033,22 +1015,12 @@
   margin-top: 12px;
   border-radius: 12px;
   padding: 16px;
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-700),
-    var(--color-brand-500) 58%,
-    #0891b2
-  );
+  background: linear-gradient(135deg, var(--color-brand-700), var(--color-brand-500));
   color: #ffffff;
 }
 
 .dark .upsell-banner {
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-800),
-    var(--color-brand-500) 58%,
-    #0e7490
-  );
+  background: linear-gradient(135deg, var(--color-brand-600), var(--color-brand-400));
 }
 
 .sb-user-card {
@@ -1173,15 +1145,13 @@
 
 .tool-icon {
   display: flex;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(99, 102, 241, 0.16);
   border-radius: 8px;
-  box-shadow: 0 5px 12px -8px currentColor;
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1;
 }
 
