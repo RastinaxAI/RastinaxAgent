@@ -19,6 +19,8 @@ AI (FastAPI + OpenRouter) :8000
 
 برای استقرار روی سرور ابری با IP `195.177.255.98`، [راهنمای استقرار ابری](DEPLOYMENT.md)
 و [کانفیگ آماده‌ی Nginx](deploy/nginx/rastinax.conf) را ببینید.
+بعد از قرار دادن سه فایل `.env`، اجرای `sudo bash deploy/ubuntu-install.sh`
+نصب و راه‌اندازی را انجام می‌دهد.
 
 ## ساختار پروژه
 

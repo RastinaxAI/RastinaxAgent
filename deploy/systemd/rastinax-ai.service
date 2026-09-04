@@ -8,7 +8,6 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/var/www/rastinax-agent/AI
-EnvironmentFile=/var/www/rastinax-agent/AI/.env
 ExecStart=/var/www/rastinax-agent/.venv-ai/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=5
