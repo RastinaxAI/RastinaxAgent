@@ -77,7 +77,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth >= 768) {
+      if (window.innerWidth >= 1024) {
         setMobileSidebarOpen(false);
       }
     };
@@ -87,7 +87,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleSidebar = () => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
       setMobileSidebarOpen((open) => !open);
       return;
     }

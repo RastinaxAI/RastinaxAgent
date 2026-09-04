@@ -1267,6 +1267,44 @@
   }
 }
 
+/* Tablets use the same closed drawer behavior as mobile. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .sidebar {
+    position: fixed;
+    z-index: 50;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 280px;
+    min-width: 280px;
+    transform: translateX(-100%);
+    box-shadow: 12px 0 36px rgba(0, 0, 0, 0.18);
+  }
+
+  [dir="rtl"] .sidebar {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    transform: translateX(100%);
+    box-shadow: -12px 0 36px rgba(0, 0, 0, 0.18);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    animation: sidebar-drawer-in 0.28s ease-out both;
+  }
+
+  .sidebar.collapsed {
+    width: 280px;
+    min-width: 280px;
+    opacity: 1;
+    pointer-events: none;
+  }
+
+  .sidebar.mobile-open,
+  .sidebar.collapsed.mobile-open {
+    pointer-events: auto;
+  }
+}
+
 @keyframes sidebar-drawer-in {
   from {
     opacity: 0.72;
