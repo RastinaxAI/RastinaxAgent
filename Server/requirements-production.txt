@@ -1,0 +1,2 @@
+# WSGI server for Linux production deployments.
+gunicorn==23.0.0

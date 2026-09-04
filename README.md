@@ -17,11 +17,14 @@ AI (FastAPI + OpenRouter) :8000
 فرانت‌اند فقط به Django متصل می‌شود. کلید OpenRouter، مدیریت Conversation،
 ذخیره پیام‌ها و تاریخچه‌ی Agent هرگز در فرانت‌اند قرار نمی‌گیرند.
 
+برای استقرار روی سرور ابری با IP `195.177.255.98`، [راهنمای استقرار ابری](DEPLOYMENT.md)
+و [کانفیگ آماده‌ی Nginx](deploy/nginx/rastinax.conf) را ببینید.
+
 ## ساختار پروژه
 
 ```text
-AI/marketing-ai-agent/          سرویس FastAPI و اتصال OpenRouter
-Server/RastinaxAgent-BackEnd/   بک‌اند Django، API و مدل‌های PostgreSQL
+AI/                              سرویس FastAPI و اتصال OpenRouter
+Server/                          بک‌اند Django، API و مدل‌های PostgreSQL
 Client/                          رابط React Router
 ```
 
@@ -39,7 +42,7 @@ Client/                          رابط React Router
 فایل زیر را بسازید:
 
 ```text
-AI/marketing-ai-agent/.env
+AI/.env
 ```
 
 محتوا:
@@ -52,7 +55,7 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 # OPENROUTER_SITE_NAME=Rastinax Marketing Agent
 ```
 
-نمونه آماده در [AI/marketing-ai-agent/.env.example](AI/marketing-ai-agent/.env.example)
+نمونه آماده در [AI/.env.example](AI/.env.example)
 قرار دارد.
 
 ### ۲. بک‌اند Django
@@ -60,7 +63,7 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 فایل زیر را بسازید:
 
 ```text
-Server/RastinaxAgent-BackEnd/.env
+Server/.env
 ```
 
 نمونه:
@@ -83,7 +86,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhos
 CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000
 ```
 
-نمونه کامل در [Server/RastinaxAgent-BackEnd/.env.example](Server/RastinaxAgent-BackEnd/.env.example)
+نمونه کامل در [Server/.env.example](Server/.env.example)
 قرار دارد.
 
 ### ۳. فرانت‌اند
@@ -104,7 +107,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8001/api/v1
 ### ترمینال اول: AI Agent
 
 ```powershell
-cd AI/marketing-ai-agent
+cd AI
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -118,7 +121,7 @@ http://127.0.0.1:8000/health
 ### ترمینال دوم: Django Backend
 
 ```powershell
-cd Server/RastinaxAgent-BackEnd
+cd Server
 python -m pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver 127.0.0.1:8001
@@ -244,14 +247,14 @@ VITE_API_BASE_URL=http://127.0.0.1:8001/api/v1
 این فرمان را اجرا کنید:
 
 ```powershell
-cd Server/RastinaxAgent-BackEnd
+cd Server
 python manage.py migrate
 ```
 
 ### `AI Agent is not configured`
 
 وجود `OPENROUTER_API_KEY` در
-`AI/marketing-ai-agent/.env` و اجرای سرویس روی پورت `8000` را بررسی کنید.
+`AI/.env` و اجرای سرویس روی پورت `8000` را بررسی کنید.
 
 ### خطای CORS
 
@@ -266,7 +269,7 @@ http://127.0.0.1:5173
 ### `password authentication failed for user`
 
 PostgreSQL در حال اجراست، اما مقدار `DB_PASSWORD` یا سایر مشخصات اتصال در
-`Server/RastinaxAgent-BackEnd/.env` با role دیتابیس یکی نیست. مقدار واقعی
+`Server/.env` با role دیتابیس یکی نیست. مقدار واقعی
 `DB_NAME`، `DB_USER`، `DB_PASSWORD`، `DB_HOST` و `DB_PORT` را وارد کنید و سپس
 دوباره اجرا کنید:
 

@@ -1,14 +1,16 @@
 DEBUG=False
-
-SECRET_KEY=b3s8t9@o(x85syc0_0@!18gsq+=akser843zuhk+dd(v5$g*tf
+SECRET_KEY=replace-with-a-long-random-production-secret
 
 DB_NAME=rastinax_agent_db
 DB_USER=admin_ai
-DB_PASSWORD=Omid2001
+DB_PASSWORD=replace-with-the-password-for-admin_ai
 DB_HOST=127.0.0.1
 DB_PORT=5432
+
+# Django talks to AI over the private loopback interface.
 AI_AGENT_BASE_URL=http://127.0.0.1:8000
 AI_AGENT_TIMEOUT=180
+
 ALLOWED_HOSTS=195.177.255.98,localhost,127.0.0.1
 CORS_ALLOWED_ORIGINS=http://195.177.255.98
 CSRF_TRUSTED_ORIGINS=http://195.177.255.98

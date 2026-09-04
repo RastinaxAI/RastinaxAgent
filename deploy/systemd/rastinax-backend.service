@@ -1,0 +1,20 @@
+[Unit]
+Description=Rastinax Django Backend
+After=network-online.target postgresql.service rastinax-ai.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/rastinax-agent/Server
+EnvironmentFile=/var/www/rastinax-agent/Server/.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+ExecStart=/var/www/rastinax-agent/.venv-server/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8001 --workers 3 --timeout 180 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

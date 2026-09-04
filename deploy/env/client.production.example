@@ -1,0 +1,2 @@
+# Same-origin API: Nginx forwards /api/v1/ to Django.
+VITE_API_BASE_URL=/api/v1
