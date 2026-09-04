@@ -1305,6 +1305,28 @@
   }
 }
 
+/* Keep the drawer fully inside the viewport in both writing directions. */
+@media (max-width: 1023px) {
+  .sidebar {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    transform: translateX(-100%);
+  }
+
+  [dir="rtl"] .sidebar {
+    left: auto;
+    right: 0;
+    transform: translateX(100%);
+  }
+
+  .sidebar.mobile-open,
+  .sidebar.collapsed.mobile-open {
+    transform: translateX(0) !important;
+  }
+}
+
 @keyframes sidebar-drawer-in {
   from {
     opacity: 0.72;
