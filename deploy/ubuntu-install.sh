@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PUBLIC_IP="195.177.255.98"
+DOMAIN="ai.rastinax.com"
 SERVICE_USER="www-data"
 
 fail() {
@@ -111,6 +112,7 @@ systemctl restart rastinax-backend
 systemctl restart rastinax-client
 
 echo "==> تنظیم Nginx"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 /var/www/letsencrypt
 install -m 0644 "$APP_DIR/deploy/nginx/rastinax.conf" \
     /etc/nginx/sites-available/rastinax
 ln -sfn /etc/nginx/sites-available/rastinax \
@@ -139,7 +141,8 @@ curl --fail --silent http://127.0.0.1/nginx-health >/dev/null \
 echo
 echo "=============================================="
 echo "استقرار با موفقیت انجام شد."
-echo "Frontend: http://$PUBLIC_IP/"
-echo "Swagger:  http://$PUBLIC_IP/api/docs/"
-echo "Health:   http://$PUBLIC_IP/nginx-health"
+echo "Frontend: http://$DOMAIN/"
+echo "Swagger:  http://$DOMAIN/api/docs/"
+echo "Health:   http://$DOMAIN/nginx-health"
+echo "SSL:      sudo CERTBOT_EMAIL=you@example.com bash deploy/enable-domain-ssl.sh"
 echo "=============================================="

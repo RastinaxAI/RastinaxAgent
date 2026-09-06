@@ -178,6 +178,9 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Nginx terminates TLS and forwards the original protocol to Django.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 AI_AGENT_BASE_URL = env(
     "AI_AGENT_BASE_URL",
     default="http://127.0.0.1:8000",
