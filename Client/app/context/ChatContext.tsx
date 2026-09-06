@@ -142,7 +142,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const langRef = useRef(lang);
   const requestSequence = useRef(0);
+
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
 
   const loadConversations = useCallback(
     async (currentVisitorId: string, showError = true) => {
@@ -153,18 +158,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return data;
       } catch (requestError) {
         if (showError) {
-          setError(getFriendlyError(requestError, lang));
+          setError(getFriendlyError(requestError, langRef.current));
         }
         return null;
       } finally {
         setIsLoadingConversations(false);
       }
     },
-    [lang],
+    [],
   );
 
   useEffect(() => {
     let cancelled = false;
+    const sequence = requestSequence.current;
 
     const bootstrap = async () => {
       const storedVisitorId = readStoredValue(STORAGE_KEYS.visitorId);
@@ -179,15 +185,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (!cancelled) {
         setVisitorId(storedVisitorId);
         setActiveChatId(storedVisitorId ? storedConversationId : null);
-        setIsReady(true);
       }
 
-      if (!storedVisitorId) return;
+      if (!storedVisitorId) {
+        if (!cancelled) setIsReady(true);
+        return;
+      }
 
       const summaries = await loadConversations(storedVisitorId);
-      if (cancelled) return;
+      if (cancelled || sequence !== requestSequence.current) return;
 
-      if (!storedConversationId) return;
+      if (!storedConversationId) {
+        setIsReady(true);
+        return;
+      }
 
       const hasStoredConversation = summaries?.some(
         (conversation) => conversation.id === storedConversationId,
@@ -196,6 +207,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (!hasStoredConversation && summaries !== null) {
         removeStoredValue(STORAGE_KEYS.conversationId);
         setActiveChatId(null);
+        setIsReady(true);
         return;
       }
 
@@ -237,9 +249,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         removeStoredValue(STORAGE_KEYS.conversationId);
         setActiveChatId(null);
         setMessages([]);
-        setError(getFriendlyError(requestError, lang));
+        setError(getFriendlyError(requestError, langRef.current));
       } finally {
-        if (!cancelled) setIsLoadingConversation(false);
+        if (!cancelled && sequence === requestSequence.current) {
+          setIsLoadingConversation(false);
+          setIsReady(true);
+        }
       }
     };
 
@@ -247,10 +262,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [lang, loadConversations]);
+  }, [loadConversations]);
 
   const createNewChat = useCallback(() => {
     requestSequence.current += 1;
+    setIsGenerating(false);
+    setIsLoadingConversation(false);
+    setIsLoadingConversations(false);
+    setIsReady(true);
     setActiveChatId(null);
     setMessages([]);
     setError(null);
@@ -259,7 +278,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const selectChat = useCallback(
     async (id: string) => {
-      if (isGenerating || isLoadingConversation || id === activeChatId) return;
+      if (
+        isGenerating ||
+        isLoadingConversation ||
+        isLoadingConversations ||
+        id === activeChatId
+      ) {
+        return;
+      }
       if (!visitorId) {
         setError(
           lang === 'fa'
@@ -333,6 +359,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       activeChatId,
       isGenerating,
       isLoadingConversation,
+      isLoadingConversations,
       lang,
       loadConversations,
       visitorId,
@@ -346,6 +373,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         !trimmedText ||
         isGenerating ||
         isLoadingConversation ||
+        isLoadingConversations ||
         !isReady
       ) {
         return;
@@ -353,7 +381,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       const conversationIdAtSend = activeChatId;
       const visitorIdAtSend = visitorId;
-      const previousMessages = messages;
+      const previousMessageCount = messages.length;
+      const sequence = ++requestSequence.current;
       const previousSummary = chats.find(
         (conversation) => conversation.id === conversationIdAtSend,
       );
@@ -377,8 +406,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             : {}),
         });
 
-        setMessages([
-          ...previousMessages,
+        if (sequence !== requestSequence.current) return;
+
+        setMessages((current) => [
+          ...current.filter((message) => message.id !== optimisticMessage.id),
           response.user_message,
           response.assistant_message,
         ]);
@@ -397,7 +428,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           response,
           previousSummary,
           trimmedText,
-          previousMessages.length,
+          previousMessageCount,
         );
         setChats((current) => [
           summary,
@@ -410,7 +441,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           await loadConversations(response.visitor_id, false);
         }
       } catch (requestError) {
-        setMessages(previousMessages);
+        if (sequence !== requestSequence.current) return;
+
+        setMessages((current) =>
+          current.filter((message) => message.id !== optimisticMessage.id),
+        );
 
         if (
           requestError instanceof ApiError &&
@@ -425,7 +460,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         setError(getFriendlyError(requestError, lang));
       } finally {
-        setIsGenerating(false);
+        if (sequence === requestSequence.current) {
+          setIsGenerating(false);
+        }
       }
     },
     [
@@ -433,6 +470,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       chats,
       isGenerating,
       isLoadingConversation,
+      isLoadingConversations,
       isReady,
       lang,
       loadConversations,

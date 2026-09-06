@@ -96,7 +96,7 @@ CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhos
 در مسیر `Client/.env` قرار دهید:
 
 ```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:8001/api/v1
+VITE_API_BASE_URL=/api/v1
 ```
 
 در محیط production فقط همین مقدار را به آدرس عمومی Django تغییر دهید. فرانت
@@ -241,7 +241,7 @@ PostgreSQL و کلید OpenRouter باید فعال باشند.
 `Client/.env` مقدار زیر را داشته باشد:
 
 ```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:8001/api/v1
+VITE_API_BASE_URL=/api/v1
 ```
 
 ### `No active agent is configured`

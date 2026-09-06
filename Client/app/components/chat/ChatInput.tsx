@@ -15,6 +15,7 @@ function LegacyChatInput() {
     sendMessage,
     isGenerating,
     isLoadingConversation,
+    isLoadingConversations,
     isReady,
   } = useChat();
   const [messageText, setMessageText] = useState('');
@@ -22,7 +23,10 @@ function LegacyChatInput() {
   const { resizeTextarea } = useAutoResize(textareaRef);
   const translations = getTranslations(lang);
   const isDisabled =
-    !isReady || isGenerating || isLoadingConversation;
+    !isReady ||
+    isGenerating ||
+    isLoadingConversation ||
+    isLoadingConversations;
 
   const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setMessageText(event.target.value);
@@ -49,7 +53,7 @@ function LegacyChatInput() {
   };
 
   return (
-    <div className="px-3 pb-3 pt-2 sm:px-4 sm:pb-4">
+    <div className="chat-composer px-3 pt-2 sm:px-4">
       <div className="input-area relative mx-auto max-w-3xl rounded-2xl px-3 py-3 sm:px-4">
         <div className="relative flex items-end gap-2">
           <textarea
@@ -90,6 +94,7 @@ export function ChatInput() {
     sendMessage,
     isGenerating,
     isLoadingConversation,
+    isLoadingConversations,
     isReady,
   } = useChat();
   const { showToast } = useToast();
@@ -100,7 +105,10 @@ export function ChatInput() {
   const { resizeTextarea } = useAutoResize(textareaRef);
   const translations = getTranslations(lang);
   const isDisabled =
-    !isReady || isGenerating || isLoadingConversation;
+    !isReady ||
+    isGenerating ||
+    isLoadingConversation ||
+    isLoadingConversations;
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -150,7 +158,7 @@ export function ChatInput() {
   };
 
   return (
-    <div className="px-3 pb-3 pt-2 sm:px-4 sm:pb-4">
+    <div className="chat-composer px-3 pt-2 sm:px-4">
       <div className="input-area relative mx-auto max-w-3xl rounded-2xl px-3 py-3 sm:px-4">
         <div className="relative flex items-end gap-2">
           <div className="relative" ref={plusRef}>
