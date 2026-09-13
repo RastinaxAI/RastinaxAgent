@@ -1,9 +1,9 @@
 import uuid
 
-from django.db import transaction
+from django.utils import timezone
 
 from agents.models import Agent, Conversation, Message
-from agents.services.agent_client import AgentClient, AgentAPIError
+from agents.services.agent_client import AgentClient
 
 
 class ChatServiceError(Exception):
@@ -27,16 +27,35 @@ class ChatService:
     def __init__(self):
         self.agent_client = AgentClient()
 
-    def send_message(
-            self,
-            message: str,
-            conversation_id=None,
-            visitor_id=None,
-            user=None,
+    # =====================================================
+    # Streaming chat
+    # =====================================================
+
+    def stream_message(
+        self,
+        message: str,
+        conversation_id=None,
+        visitor_id=None,
+        user=None,
     ):
-        agent = Agent.objects.filter(
-            is_active=True
-        ).first()
+        """
+        Creates or continues a conversation.
+
+        Returns:
+            conversation
+            user_message
+            agent stream
+        """
+
+        # ---------------------------------------------
+        # Find active AI agent
+        # ---------------------------------------------
+
+        agent = (
+            Agent.objects
+            .filter(is_active=True)
+            .first()
+        )
 
         if not agent:
             raise NoActiveAgentError(
@@ -49,92 +68,191 @@ class ChatService:
             False,
         )
 
+        # ---------------------------------------------
+        # Normalize visitor_id
+        # ---------------------------------------------
+
         if visitor_id:
             try:
-                visitor_id = uuid.UUID(str(visitor_id))
-            except (TypeError, ValueError, AttributeError):
+                visitor_id = uuid.UUID(
+                    str(visitor_id)
+                )
+
+            except (ValueError, TypeError):
                 raise ChatServiceError(
                     "Invalid visitor_id."
                 )
 
+        # ---------------------------------------------
+        # Existing conversation
+        # ---------------------------------------------
+
         if conversation_id:
+
             conversation = self._get_conversation(
                 conversation_id=conversation_id,
                 visitor_id=visitor_id,
                 user=user,
             )
 
+        # ---------------------------------------------
+        # New conversation
+        # ---------------------------------------------
+
         else:
 
-            if not is_authenticated and not visitor_id:
+            # Guest user
+            if (
+                not is_authenticated
+                and not visitor_id
+            ):
                 visitor_id = uuid.uuid4()
 
-            conversation = Conversation.objects.create(
-                agent=agent,
-                user=user if is_authenticated else None,
-                visitor_id=visitor_id,
+            conversation = (
+                Conversation.objects.create(
+                    agent=agent,
+
+                    user=(
+                        user
+                        if is_authenticated
+                        else None
+                    ),
+
+                    visitor_id=visitor_id,
+                )
             )
 
-        try:
-            user_message = Message.objects.create(
-                conversation=conversation,
-                role=Message.Role.USER,
-                content=message,
-            )
+        # ---------------------------------------------
+        # Build previous chat history
+        #
+        # IMPORTANT:
+        # باید قبل از ذخیره پیام جدید ساخته شود.
+        # چون message جدید جداگانه به عنوان
+        # user_input برای Agent ارسال می‌شود.
+        # ---------------------------------------------
 
-            agent_result = self.agent_client.chat(
+        chat_history = self._build_chat_history(
+            conversation
+        )
+
+        # ---------------------------------------------
+        # Save current user message
+        # ---------------------------------------------
+
+        user_message = Message.objects.create(
+            conversation=conversation,
+            role=Message.Role.USER,
+            content=message,
+        )
+
+        # ---------------------------------------------
+        # Conversation title
+        # ---------------------------------------------
+
+        if not conversation.title:
+            conversation.title = message[:100]
+
+        # Update sidebar ordering
+        conversation.updated_at = timezone.now()
+
+        conversation.save(
+            update_fields=[
+                "title",
+                "updated_at",
+            ]
+        )
+
+        # ---------------------------------------------
+        # Start AI Agent stream
+        # ---------------------------------------------
+
+        agent_stream = (
+            self.agent_client.stream_chat(
                 user_input=message,
-                chat_history=conversation.provider_history,
+                chat_history=chat_history,
             )
-
-        except AgentAPIError as exc:
-            if conversation_id:
-                Message.objects.filter(id=user_message.id).delete()
-            else:
-                conversation.delete()
-            raise ChatServiceError(
-                str(exc)
-            ) from exc
-
-        with transaction.atomic():
-
-            assistant_message = Message.objects.create(
-                conversation=conversation,
-                role=Message.Role.ASSISTANT,
-                content=agent_result["response"],
-            )
-
-            conversation.provider_history = agent_result["chat_history"]
-
-            if not conversation.title:
-                conversation.title = message[:100]
-
-            conversation.save(
-                update_fields=[
-                    "provider_history",
-                    "title",
-                    "updated_at",
-                ]
-            )
+        )
 
         return {
-            "conversation_id": conversation.id,
-            "visitor_id": conversation.visitor_id,
+            "conversation": conversation,
             "user_message": user_message,
-            "assistant_message": assistant_message,
+            "stream": agent_stream,
         }
+
+    # =====================================================
+    # Save completed assistant response
+    # =====================================================
+
+    def save_assistant_message(
+        self,
+        conversation: Conversation,
+        content: str,
+    ) -> Message:
+
+        assistant_message = (
+            Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.ASSISTANT,
+                content=content,
+            )
+        )
+
+        # باعث می‌شود Conversation
+        # در Sidebar به بالای لیست بیاید.
+        conversation.updated_at = timezone.now()
+
+        conversation.save(
+            update_fields=[
+                "updated_at",
+            ]
+        )
+
+        return assistant_message
+
+    # =====================================================
+    # Build history from PostgreSQL
+    # =====================================================
+
+    def _build_chat_history(
+        self,
+        conversation: Conversation,
+    ):
+
+        messages = (
+            conversation.messages
+            .order_by("created_at")
+        )
+
+        history = [
+            {
+                "role": message.role,
+                "content": message.content,
+            }
+            for message in messages
+        ]
+
+        if not history:
+            return None
+
+        return history
+
+    # =====================================================
+    # Get & authorize conversation
+    # =====================================================
 
     def _get_conversation(
         self,
         conversation_id,
         visitor_id,
         user,
-    ):
+    ) -> Conversation:
 
         try:
-            conversation = Conversation.objects.get(
-                id=conversation_id,
-                is_active=True,
+            conversation = (
+                Conversation.objects.get(
+                    id=conversation_id,
+                    is_active=True,
+                )
             )
 
         except Conversation.DoesNotExist:
@@ -142,12 +260,27 @@ class ChatService:
                 "Conversation not found."
             )
 
-        if getattr(user, "is_authenticated", False):
+        is_authenticated = getattr(
+            user,
+            "is_authenticated",
+            False,
+        )
+
+        # ---------------------------------------------
+        # Logged-in user
+        # ---------------------------------------------
+
+        if is_authenticated:
 
             if conversation.user_id != user.id:
                 raise ConversationAccessDeniedError(
-                    "You do not have access to this conversation."
+                    "You do not have access "
+                    "to this conversation."
                 )
+
+        # ---------------------------------------------
+        # Guest visitor
+        # ---------------------------------------------
 
         else:
 
@@ -156,7 +289,10 @@ class ChatService:
                     "visitor_id is required."
                 )
 
-            if conversation.visitor_id != visitor_id:
+            if (
+                conversation.visitor_id
+                != visitor_id
+            ):
                 raise ConversationAccessDeniedError(
                     "Invalid visitor."
                 )

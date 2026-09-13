@@ -92,6 +92,7 @@ export function ChatInput() {
   const { lang } = useUI();
   const {
     sendMessage,
+    stopGeneration,
     isGenerating,
     isLoadingConversation,
     isLoadingConversations,
@@ -123,6 +124,19 @@ export function ChatInput() {
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, []);
+
+  // بعد از پایان پاسخ (یا لود گفتگو) فوکوس به کادر پیام برمی‌گردد
+  // تا بدون کلیک اضافه بتوان سؤال بعدی را تایپ کرد
+  useEffect(() => {
+    if (
+      isReady &&
+      !isGenerating &&
+      !isLoadingConversation &&
+      !isLoadingConversations
+    ) {
+      textareaRef.current?.focus();
+    }
+  }, [isGenerating, isLoadingConversation, isLoadingConversations, isReady]);
 
   const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setMessageText(event.target.value);
@@ -209,15 +223,27 @@ export function ChatInput() {
             aria-label={translations.chat.placeholder}
           />
 
-          <button
-            type="button"
-            className="send-btn mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
-            disabled={!messageText.trim() || isDisabled}
-            aria-label={lang === 'fa' ? 'ارسال پیام' : 'Send message'}
-            onClick={handleSend}
-          >
-            <i className="fa-solid fa-arrow-up text-sm" aria-hidden="true" />
-          </button>
+          {isGenerating ? (
+            <button
+              type="button"
+              className="send-btn mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
+              aria-label={translations.chat.stopGeneration}
+              title={translations.chat.stopGeneration}
+              onClick={stopGeneration}
+            >
+              <i className="fa-solid fa-stop text-sm" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="send-btn mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
+              disabled={!messageText.trim() || isDisabled}
+              aria-label={lang === 'fa' ? 'ارسال پیام' : 'Send message'}
+              onClick={handleSend}
+            >
+              <i className="fa-solid fa-arrow-up text-sm" aria-hidden="true" />
+            </button>
+          )}
         </div>
 
         <div className="mt-2 text-center text-[10px] text-[var(--tx-m)]">

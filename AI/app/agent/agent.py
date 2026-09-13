@@ -1,12 +1,29 @@
+import asyncio
 import os
 import sys
 import json
+import time
 from pathlib import Path
-from openai import OpenAI, OpenAIError
+from openai import AsyncOpenAI, OpenAIError
 from dotenv import load_dotenv
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from app.agent.tools import tools_schema, available_tools
+
+load_dotenv()
+
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "gpt-4o-mini")
+
+# سرعت نمایش استریم (کاراکتر بر ثانیه). برای تایپ تدریجی و قابل‌دیدن.
+STREAM_CHARS_PER_SECOND = float(os.getenv("STREAM_CHARS_PER_SECOND", "150"))
+
+
+async def _pace(sent_chars: int, started_at: float) -> None:
+    """Output را با سرعت STREAM_CHARS_PER_SECOND محدود می‌کند؛
+    بدون تأخیر اضافه اگر مدل خودش کند باشد."""
+    delay = started_at + sent_chars / STREAM_CHARS_PER_SECOND - time.monotonic()
+    if delay > 0:
+        await asyncio.sleep(delay)
 
 SYSTEM_PROMPT = """You are a professional AI marketing and sales assistant for "Rastinax" (آژانس دیجیتال مارکتینگ و هوش مصنوعی راستیناکس).
 
@@ -50,78 +67,149 @@ Instructions for AI Response:
 
 _client = None
 
-def get_client() -> OpenAI:
+def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        load_dotenv()
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY یافت نشد.")
-        _client = OpenAI(
+        # نکته مهم: حتماً AsyncOpenAI؛ فراخوانی سینک/blocking داخل
+        # async generator باعث می‌شود uvicorn نتواند chunkها را
+        # موقع تولید بفرستد و کل پاسخ یکجا در انتها flush شود.
+        _client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key
         )
     return _client
 
+def _build_messages(user_input: str, chat_history: list = None) -> list:
+    """
+    تاریخچه‌ای که Django می‌فرستد فقط user/assistant دارد؛
+    system prompt همیشه باید سرِ لیست باشد تا شخصیت Agent
+    در ادامه گفتگو حفظ شود.
+    """
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for item in (chat_history or []):
+        if item.get("role") == "system":
+            continue
+        messages.append({
+            "role": item.get("role"),
+            "content": item.get("content"),
+        })
+    messages.append({"role": "user", "content": user_input})
+    return messages
+
 async def run_agent_stream(user_input: str, chat_history: list = None):
+    """
+    استریم واقعی: توکن‌ها بلافاصله بعد از تولید yield می‌شوند.
+    اگر مدل در حین استریم tool call بخواهد، ابزار اجرا و
+    پاسخ نهایی در همان استریم ادامه پیدا می‌کند.
+    """
     try:
         client = get_client()
     except Exception as e:
         yield f"خطا در پیکربندی: {str(e)}"
         return
 
-    if not chat_history:
-        chat_history = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-    chat_history.append({"role": "user", "content": user_input})
+    messages = _build_messages(user_input, chat_history)
 
     try:
-        check_response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=chat_history,
-            tools=tools_schema if tools_schema else None
+        stream = await client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=messages,
+            tools=tools_schema if tools_schema else None,
+            stream=True,
         )
 
-        response_message = check_response.choices[0].message
-        tool_calls = response_message.tool_calls
+        tool_calls: dict[int, dict] = {}
+        content_parts: list[str] = []
+        stream_started = time.monotonic()
+        sent_chars = 0
 
-        if tool_calls:
-            chat_history.append(response_message.model_dump())
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                if function_name in available_tools:
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                        tool_result = available_tools[function_name](**args)
-                    except Exception as tool_err:
-                        tool_result = f"Error: {str(tool_err)}"
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
 
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": str(tool_result)
-                    })
+            delta = chunk.choices[0].delta
 
-            stream_response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=chat_history,
-                stream=True
-            )
-            for chunk in stream_response:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield content
+            if delta and delta.content:
+                content_parts.append(delta.content)
+                sent_chars += len(delta.content)
+                yield delta.content
+                await _pace(sent_chars, stream_started)
+
+            if delta and delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    entry = tool_calls.setdefault(
+                        tool_call.index,
+                        {"id": "", "name": "", "arguments": ""},
+                    )
+                    if tool_call.id:
+                        entry["id"] = tool_call.id
+                    if tool_call.function:
+                        if tool_call.function.name:
+                            entry["name"] += tool_call.function.name
+                        if tool_call.function.arguments:
+                            entry["arguments"] += tool_call.function.arguments
+
+        if not tool_calls:
             return
 
-        stream_response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=chat_history,
-            stream=True
+        # مدل ابزار خواسته است؛ اجرا و سپس استریم پاسخ نهایی
+        parsed_calls = [
+            tool_calls[index] for index in sorted(tool_calls)
+        ]
+
+        messages.append({
+            "role": "assistant",
+            "content": "".join(content_parts) or None,
+            "tool_calls": [
+                {
+                    "id": entry["id"],
+                    "type": "function",
+                    "function": {
+                        "name": entry["name"],
+                        "arguments": entry["arguments"],
+                    },
+                }
+                for entry in parsed_calls
+            ],
+        })
+
+        for entry in parsed_calls:
+            try:
+                args = json.loads(entry["arguments"] or "{}")
+                if entry["name"] in available_tools:
+                    tool_result = available_tools[entry["name"]](**args)
+                else:
+                    tool_result = f"Error: unknown tool '{entry['name']}'"
+            except Exception as tool_err:
+                tool_result = f"Error: {str(tool_err)}"
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": entry["id"],
+                "content": str(tool_result),
+            })
+
+        final_stream = await client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=messages,
+            stream=True,
         )
-        for chunk in stream_response:
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
+        # پیس‌ینگ پاسخ نهایی از نو شروع می‌شود (زمان اجرای ابزارها
+        # نباید در محاسبه سرعت لحاظ شود)
+        stream_started = time.monotonic()
+        sent_chars = 0
+        async for chunk in final_stream:
+            if not chunk.choices:
+                continue
+
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                sent_chars += len(delta.content)
+                yield delta.content
+                await _pace(sent_chars, stream_started)
 
     except OpenAIError as e:
         yield f"خطای ارتباط با هوش مصنوعی: {str(e)}"

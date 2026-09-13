@@ -14,12 +14,11 @@ import {
   ApiError,
   getConversation,
   getConversations,
-  sendMessage as sendMessageToApi,
+  streamChat,
 } from '~/api/chatApi';
 import { useUI } from '~/context/UIContext';
 import { STORAGE_KEYS } from '~/lib/constants';
 import type {
-  ChatResponse,
   ConversationDetail,
   ConversationSummary,
   Message,
@@ -32,6 +31,8 @@ interface ChatContextType {
   visitorId: string | null;
   messages: Message[];
   isGenerating: boolean;
+  /** Live text of the assistant response currently being streamed. */
+  streamingAssistantText: string;
   isLoadingConversation: boolean;
   isLoadingConversations: boolean;
   isReady: boolean;
@@ -40,6 +41,7 @@ interface ChatContextType {
   createNewChat: () => void;
   selectChat: (id: string) => Promise<void>;
   refreshConversations: () => Promise<void>;
+  stopGeneration: () => void;
   sendMessage: (text: string) => Promise<void>;
 }
 
@@ -84,27 +86,10 @@ function getFriendlyError(error: unknown, lang: 'fa' | 'en') {
   return messages.generic;
 }
 
-function makeSummary(
-  response: ChatResponse,
-  previous: ConversationSummary | undefined,
-  firstMessage: string,
-  previousMessageCount: number,
-): ConversationSummary {
-  const title = previous?.title || firstMessage.slice(0, 100);
-  const createdAt = previous?.created_at || response.user_message.created_at;
-
-  return {
-    id: response.conversation_id,
-    title,
-    last_message: {
-      role: response.assistant_message.role,
-      content: response.assistant_message.content,
-      created_at: response.assistant_message.created_at,
-    },
-    message_count: (previous?.message_count || previousMessageCount) + 2,
-    created_at: createdAt,
-    updated_at: response.assistant_message.created_at,
-  };
+function getStreamCutMessage(lang: 'fa' | 'en') {
+  return lang === 'fa'
+    ? 'پاسخ به‌صورت ناقص قطع شد؛ ممکن است بخشی از پاسخ ذخیره نشده باشد.'
+    : 'The response stream was cut off; part of the answer may be missing.';
 }
 
 function readStoredValue(key: string) {
@@ -138,12 +123,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [visitorId, setVisitorId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const langRef = useRef(lang);
   const requestSequence = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     langRef.current = lang;
@@ -266,7 +253,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const createNewChat = useCallback(() => {
     requestSequence.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
     setIsGenerating(false);
+    setStreamingText('');
     setIsLoadingConversation(false);
     setIsLoadingConversations(false);
     setIsReady(true);
@@ -274,6 +264,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setError(null);
     removeStoredValue(STORAGE_KEYS.conversationId);
+  }, []);
+
+  const stopGeneration = useCallback(() => {
+    abortRef.current?.abort();
   }, []);
 
   const selectChat = useCallback(
@@ -393,56 +387,125 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         created_at: new Date().toISOString(),
       };
 
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setError(null);
       setMessages((current) => [...current, optimisticMessage]);
+      setStreamingText('');
       setIsGenerating(true);
 
+      // Latest assistant text received from the stream.
+      let streamedText = '';
+
       try {
-        const response = await sendMessageToApi({
-          message: trimmedText,
-          ...(visitorIdAtSend ? { visitor_id: visitorIdAtSend } : {}),
-          ...(conversationIdAtSend
-            ? { conversation_id: conversationIdAtSend }
-            : {}),
-        });
+        const result = await streamChat(
+          {
+            message: trimmedText,
+            ...(visitorIdAtSend ? { visitor_id: visitorIdAtSend } : {}),
+            ...(conversationIdAtSend
+              ? { conversation_id: conversationIdAtSend }
+              : {}),
+          },
+          {
+            signal: controller.signal,
+            onChunk: (_chunk, fullText) => {
+              if (sequence !== requestSequence.current) return;
+              streamedText = fullText;
+              setStreamingText(fullText);
+            },
+          },
+        );
 
         if (sequence !== requestSequence.current) return;
 
-        setMessages((current) => [
-          ...current.filter((message) => message.id !== optimisticMessage.id),
-          response.user_message,
-          response.assistant_message,
-        ]);
-        setActiveChatId(response.conversation_id);
-
-        if (response.visitor_id) {
-          setVisitorId(response.visitor_id);
-          writeStoredValue(STORAGE_KEYS.visitorId, response.visitor_id);
+        // Persist the identifiers returned through the response headers.
+        if (result.visitorId) {
+          setVisitorId(result.visitorId);
+          writeStoredValue(STORAGE_KEYS.visitorId, result.visitorId);
         }
-        writeStoredValue(
-          STORAGE_KEYS.conversationId,
-          response.conversation_id,
-        );
 
-        const summary = makeSummary(
-          response,
-          previousSummary,
-          trimmedText,
-          previousMessageCount,
-        );
-        setChats((current) => [
-          summary,
-          ...current.filter(
-            (conversation) => conversation.id !== summary.id,
-          ),
-        ]);
+        const effectiveConversationId =
+          result.conversationId ?? conversationIdAtSend;
 
-        if (response.visitor_id) {
-          await loadConversations(response.visitor_id, false);
+        if (result.conversationId) {
+          setActiveChatId(result.conversationId);
+          writeStoredValue(
+            STORAGE_KEYS.conversationId,
+            result.conversationId,
+          );
+        }
+
+        // Attach the real server-side id to the optimistic user message.
+        if (result.userMessageId) {
+          const serverUserMessageId = result.userMessageId;
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === optimisticMessage.id
+                ? { ...message, id: serverUserMessageId }
+                : message,
+            ),
+          );
+        }
+
+        // The backend persists the assistant message only after the
+        // stream completes successfully. An aborted stream therefore
+        // stays local-only and may disappear after a page reload.
+        const assistantText = result.text || streamedText;
+
+        if (assistantText.trim()) {
+          setMessages((current) => [
+            ...current,
+            {
+              id: `assistant-${createId()}`,
+              role: 'assistant',
+              content: assistantText,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+        }
+
+        // Update the sidebar entry immediately; the background refresh
+        // below then syncs the server-side title and message count.
+        if (effectiveConversationId) {
+          const nowIso = new Date().toISOString();
+          const summary: ConversationSummary = {
+            id: effectiveConversationId,
+            title: previousSummary?.title || trimmedText.slice(0, 100),
+            last_message: {
+              role: 'assistant',
+              content: assistantText || trimmedText,
+              created_at: nowIso,
+            },
+            message_count:
+              Math.max(
+                previousMessageCount,
+                previousSummary?.message_count ?? 0,
+              ) + 2,
+            created_at: previousSummary?.created_at || nowIso,
+            updated_at: nowIso,
+          };
+          setChats((current) => [
+            summary,
+            ...current.filter(
+              (conversation) => conversation.id !== summary.id,
+            ),
+          ]);
+        }
+
+        if (result.incomplete) {
+          setError(getStreamCutMessage(langRef.current));
+        }
+
+        const visitorIdFinal = result.visitorId ?? visitorIdAtSend;
+        if (visitorIdFinal && !result.incomplete) {
+          await loadConversations(visitorIdFinal, false);
         }
       } catch (requestError) {
         if (sequence !== requestSequence.current) return;
 
+        // Errors before the stream starts mean the backend did not
+        // persist the user message either, so remove the optimistic one.
         setMessages((current) =>
           current.filter((message) => message.id !== optimisticMessage.id),
         );
@@ -462,6 +525,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       } finally {
         if (sequence === requestSequence.current) {
           setIsGenerating(false);
+          setStreamingText('');
+          abortRef.current = null;
         }
       }
     },
@@ -508,6 +573,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         visitorId,
         messages,
         isGenerating,
+        streamingAssistantText: streamingText,
         isLoadingConversation,
         isLoadingConversations,
         isReady,
@@ -516,6 +582,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         createNewChat,
         selectChat,
         refreshConversations,
+        stopGeneration,
         sendMessage,
       }}
     >

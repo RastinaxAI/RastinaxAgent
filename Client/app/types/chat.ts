@@ -35,11 +35,22 @@ export interface ChatRequest {
     conversation_id?: string;
 }
 
-export interface ChatResponse {
-    conversation_id: string;
-    visitor_id: string | null;
-    user_message: Message;
-    assistant_message: Message;
+/**
+ * Result of a streamed chat response. The backend answers
+ * POST /api/v1/chat/ with a raw text stream and returns the
+ * identifiers through response headers (X-Conversation-ID,
+ * X-Visitor-ID, X-User-Message-ID).
+ */
+export interface ChatStreamResult {
+    conversationId: string | null;
+    visitorId: string | null;
+    userMessageId: string | null;
+    /** Full assistant text received from the stream. */
+    text: string;
+    /** True when the stream was stopped by the user (AbortController). */
+    aborted: boolean;
+    /** True when the stream ended abnormally before completion. */
+    incomplete: boolean;
 }
 
 export type ChatSession = ConversationDetail;

@@ -1,23 +1,28 @@
-import uuid
+from django.http import StreamingHttpResponse
 
-from rest_framework import status
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from rest_framework.views import APIView
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiParameter,
 )
 
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from agents.models import Conversation
+
+
 
 from agents.serializers import (
     ChatRequestSerializer,
-    ChatResponseSerializer,
     ConversationListSerializer,
     ConversationDetailSerializer,
 )
 
+from agents.services.agent_client import AgentAPIError
 
 from agents.services.chat_service import (
     ChatService,
@@ -26,22 +31,38 @@ from agents.services.chat_service import (
     ConversationAccessDeniedError,
     NoActiveAgentError,
 )
+from agents.renderers import IgnoreAcceptContentNegotiation
 
-
+# =========================================================
+# Chat API
+# =========================================================
 
 class ChatAPIView(APIView):
+
     authentication_classes = []
     permission_classes = [AllowAny]
+
+    content_negotiation_class = (
+        IgnoreAcceptContentNegotiation
+    )
 
     @extend_schema(
         request=ChatRequestSerializer,
         responses={
-            200: ChatResponseSerializer,
+            (200, "text/plain"): OpenApiTypes.STR,
         },
-        summary="Send message to AI Agent",
-        description="Creates or continues a conversation with the AI Agent.",
+        summary="Stream AI chat response",
+        description=(
+            "Creates or continues a conversation "
+            "and streams the AI response as plain text."
+        ),
     )
     def post(self, request):
+
+        # -----------------------------
+        # Validate request
+        # -----------------------------
+
         serializer = ChatRequestSerializer(
             data=request.data
         )
@@ -54,16 +75,23 @@ class ChatAPIView(APIView):
 
         service = ChatService()
 
+        # -----------------------------
+        # Create / continue conversation
+        # -----------------------------
+
         try:
 
-            result = service.send_message(
+            result = service.stream_message(
                 message=data["message"],
+
                 conversation_id=data.get(
                     "conversation_id"
                 ),
+
                 visitor_id=data.get(
                     "visitor_id"
                 ),
+
                 user=request.user,
             )
 
@@ -103,62 +131,177 @@ class ChatAPIView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        response_serializer = ChatResponseSerializer(
-            result
+        # -----------------------------
+        # Result
+        # -----------------------------
+
+        conversation = result["conversation"]
+
+        user_message = result["user_message"]
+
+        agent_stream = result["stream"]
+
+        # -----------------------------
+        # Streaming generator
+        # -----------------------------
+
+        def generate():
+
+            full_response = ""
+
+            try:
+
+                for chunk in agent_stream:
+
+                    if not chunk:
+                        continue
+
+                    # Build full assistant response
+                    # for database storage
+                    full_response += chunk
+
+                    # Immediately send chunk
+                    # to frontend
+                    yield chunk
+
+            except AgentAPIError as exc:
+
+                # HTTP headers have already been sent,
+                # so status code cannot be changed here.
+                #
+                # We stop the stream.
+                print(
+                    f"AI Agent stream error: {exc}"
+                )
+
+                return
+
+            except Exception as exc:
+
+                print(
+                    f"Unexpected stream error: {exc}"
+                )
+
+                return
+
+            # -----------------------------
+            # Save assistant response
+            # after stream finishes
+            # successfully
+            # -----------------------------
+
+            if full_response.strip():
+
+                service.save_assistant_message(
+                    conversation=conversation,
+                    content=full_response,
+                )
+
+        # -----------------------------
+        # Streaming HTTP Response
+        # -----------------------------
+
+        response = StreamingHttpResponse(
+            streaming_content=generate(),
+
+            content_type=(
+                "text/plain; charset=utf-8"
+            ),
         )
 
-        return Response(
-            response_serializer.data,
-            status=status.HTTP_200_OK,
+        # Prevent caching
+        response["Cache-Control"] = "no-cache"
+
+        # Prevent nginx buffering
+        response["X-Accel-Buffering"] = "no"
+
+        # -----------------------------
+        # Metadata for frontend
+        # -----------------------------
+
+        response["X-Conversation-ID"] = str(
+            conversation.id
         )
+
+        response["X-User-Message-ID"] = str(
+            user_message.id
+        )
+
+        if conversation.visitor_id:
+
+            response["X-Visitor-ID"] = str(
+                conversation.visitor_id
+            )
+
+        return response
+
+
+# =========================================================
+# Conversation List API
+# =========================================================
 
 class ConversationListAPIView(APIView):
 
     authentication_classes = []
-    permission_classes = [AllowAny]
+
+    permission_classes = [
+        AllowAny
+    ]
 
     @extend_schema(
         parameters=[
             OpenApiParameter(
                 name="visitor_id",
-                type=str,
+
+                type=OpenApiTypes.UUID,
+
                 location=OpenApiParameter.QUERY,
+
                 required=True,
+
                 description="Visitor UUID",
             ),
         ],
-        responses=ConversationListSerializer(many=True),
+
+        responses=ConversationListSerializer(
+            many=True
+        ),
+
         summary="List visitor conversations",
+
+        description=(
+            "Returns all active conversations "
+            "belonging to a visitor."
+        ),
     )
     def get(self, request):
 
-        visitor_id = request.query_params.get("visitor_id")
+        visitor_id = request.query_params.get(
+            "visitor_id"
+        )
 
         if not visitor_id:
-            return Response(
-                {
-                    "error": "visitor_id is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        try:
-            visitor_uuid = uuid.UUID(visitor_id)
-        except (TypeError, ValueError, AttributeError):
             return Response(
                 {
-                    "error": "visitor_id must be a valid UUID."
+                    "error":
+                        "visitor_id is required."
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+
+                status=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
             )
 
         conversations = (
             Conversation.objects
             .filter(
-                visitor_id=visitor_uuid,
+                visitor_id=visitor_id,
                 is_active=True,
             )
-            .order_by("-updated_at")
+            .order_by(
+                "-updated_at"
+            )
         )
 
         serializer = ConversationListSerializer(
@@ -171,23 +314,42 @@ class ConversationListAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+# =========================================================
+# Conversation Detail / History API
+# =========================================================
+
 class ConversationDetailAPIView(APIView):
 
     authentication_classes = []
-    permission_classes = [AllowAny]
+
+    permission_classes = [
+        AllowAny
+    ]
 
     @extend_schema(
         parameters=[
             OpenApiParameter(
                 name="visitor_id",
-                type=str,
+
+                type=OpenApiTypes.UUID,
+
                 location=OpenApiParameter.QUERY,
+
                 required=True,
+
                 description="Visitor UUID",
             ),
         ],
+
         responses=ConversationDetailSerializer,
-        summary="Get conversation details",
+
+        summary="Get conversation history",
+
+        description=(
+            "Returns a conversation together "
+            "with all stored user and assistant messages."
+        ),
     )
     def get(
         self,
@@ -200,40 +362,45 @@ class ConversationDetailAPIView(APIView):
         )
 
         if not visitor_id:
+
             return Response(
                 {
-                    "error": "visitor_id is required."
+                    "error":
+                        "visitor_id is required."
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+
+                status=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
             )
 
         try:
-            visitor_uuid = uuid.UUID(visitor_id)
-        except (TypeError, ValueError, AttributeError):
-            return Response(
-                {
-                    "error": "visitor_id must be a valid UUID."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        try:
             conversation = (
                 Conversation.objects
-                .prefetch_related("messages")
+                .prefetch_related(
+                    "messages"
+                )
                 .get(
                     id=conversation_id,
-                    visitor_id=visitor_uuid,
+
+                    visitor_id=visitor_id,
+
                     is_active=True,
                 )
             )
 
         except Conversation.DoesNotExist:
+
             return Response(
                 {
-                    "error": "Conversation not found."
+                    "error":
+                        "Conversation not found."
                 },
-                status=status.HTTP_404_NOT_FOUND,
+
+                status=(
+                    status.HTTP_404_NOT_FOUND
+                ),
             )
 
         serializer = ConversationDetailSerializer(
@@ -244,6 +411,3 @@ class ConversationDetailAPIView(APIView):
             serializer.data,
             status=status.HTTP_200_OK,
         )
-from django.shortcuts import render
-
-# Create your views here.
