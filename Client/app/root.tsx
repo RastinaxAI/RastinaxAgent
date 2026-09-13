@@ -28,7 +28,8 @@ export const links = () => [
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&family=Vazirmatn:wght@300;400;500;600;700;800&display=swap",
     },
-    { rel: "icon", href: "/favicon.ico" },
+    { rel: "icon", type: "image/png", href: "/rastinax-logo.png" },
+    { rel: "apple-touch-icon", href: "/rastinax-logo.png" },
 ];
 
 export const meta = () => [

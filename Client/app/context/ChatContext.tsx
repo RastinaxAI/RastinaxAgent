@@ -31,7 +31,7 @@ interface ChatContextType {
   visitorId: string | null;
   messages: Message[];
   isGenerating: boolean;
-  /** Live text of the assistant response currently being streamed. */
+  /** Live text of the assistant response currently being typed out. */
   streamingAssistantText: string;
   isLoadingConversation: boolean;
   isLoadingConversations: boolean;
@@ -49,6 +49,29 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const createId = () =>
   `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+
+// ============================================================
+// Word-by-word typewriter display
+//
+// Network chunks land in targetTextRef at full speed; a ticker
+// then reveals the text word by word so the response types out
+// gently. If the buffer grows too far behind (fast model or
+// short ticks), more than one word is revealed per tick so the
+// display never lags noticeably behind the network.
+// ============================================================
+
+const TYPE_TICK_MS = 70;
+const TYPE_CATCHUP_CHARS = 120;
+
+const WHITESPACE = /\s/;
+
+function revealNextWord(text: string, from: number) {
+  let i = from;
+  while (i < text.length && WHITESPACE.test(text[i])) i++;
+  while (i < text.length && !WHITESPACE.test(text[i])) i++;
+  while (i < text.length && WHITESPACE.test(text[i])) i++;
+  return i;
+}
 
 function getFriendlyError(error: unknown, lang: 'fa' | 'en') {
   const messages =
@@ -132,9 +155,62 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const requestSequence = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Typewriter state: target grows with network chunks, displayed
+  // text catches up word by word through the ticker below.
+  const targetTextRef = useRef('');
+  const displayedCharsRef = useRef(0);
+  const streamEndedRef = useRef(false);
+  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalizeStreamRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     langRef.current = lang;
   }, [lang]);
+
+  const stopTicker = useCallback(() => {
+    if (tickerRef.current) {
+      clearInterval(tickerRef.current);
+      tickerRef.current = null;
+    }
+  }, []);
+
+  const startTicker = useCallback(() => {
+    stopTicker();
+    tickerRef.current = setInterval(() => {
+      const target = targetTextRef.current;
+
+      if (displayedCharsRef.current >= target.length) {
+        if (streamEndedRef.current) {
+          stopTicker();
+          finalizeStreamRef.current?.();
+        }
+        return;
+      }
+
+      const behind = target.length - displayedCharsRef.current;
+      const wordsToReveal = behind > TYPE_CATCHUP_CHARS * 2 ? 3 : behind > TYPE_CATCHUP_CHARS ? 2 : 1;
+
+      let next = displayedCharsRef.current;
+      for (let w = 0; w < wordsToReveal && next < target.length; w++) {
+        next = revealNextWord(target, next);
+      }
+
+      displayedCharsRef.current = next;
+      setStreamingText(target.slice(0, next));
+    }, TYPE_TICK_MS);
+  }, [stopTicker]);
+
+  const resetTypewriter = useCallback(() => {
+    stopTicker();
+    finalizeStreamRef.current = null;
+    streamEndedRef.current = true;
+    targetTextRef.current = '';
+    displayedCharsRef.current = 0;
+    setStreamingText('');
+  }, [stopTicker]);
+
+  // Stop the ticker when the provider unmounts.
+  useEffect(() => stopTicker, [stopTicker]);
 
   const loadConversations = useCallback(
     async (currentVisitorId: string, showError = true) => {
@@ -255,8 +331,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     requestSequence.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    resetTypewriter();
     setIsGenerating(false);
-    setStreamingText('');
     setIsLoadingConversation(false);
     setIsLoadingConversations(false);
     setIsReady(true);
@@ -264,10 +340,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setError(null);
     removeStoredValue(STORAGE_KEYS.conversationId);
-  }, []);
+  }, [resetTypewriter]);
 
   const stopGeneration = useCallback(() => {
+    // While the stream is active this aborts the request; while the
+    // typewriter is still draining it flushes the remaining words.
     abortRef.current?.abort();
+    displayedCharsRef.current = targetTextRef.current.length;
   }, []);
 
   const selectChat = useCallback(
@@ -392,11 +471,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       setError(null);
       setMessages((current) => [...current, optimisticMessage]);
+
+      targetTextRef.current = '';
+      displayedCharsRef.current = 0;
+      streamEndedRef.current = false;
       setStreamingText('');
       setIsGenerating(true);
-
-      // Latest assistant text received from the stream.
-      let streamedText = '';
+      startTicker();
 
       try {
         const result = await streamChat(
@@ -411,8 +492,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             signal: controller.signal,
             onChunk: (_chunk, fullText) => {
               if (sequence !== requestSequence.current) return;
-              streamedText = fullText;
-              setStreamingText(fullText);
+              targetTextRef.current = fullText;
             },
           },
         );
@@ -448,64 +528,82 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           );
         }
 
-        // The backend persists the assistant message only after the
-        // stream completes successfully. An aborted stream therefore
-        // stays local-only and may disappear after a page reload.
-        const assistantText = result.text || streamedText;
-
-        if (assistantText.trim()) {
-          setMessages((current) => [
-            ...current,
-            {
-              id: `assistant-${createId()}`,
-              role: 'assistant',
-              content: assistantText,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-        }
-
-        // Update the sidebar entry immediately; the background refresh
-        // below then syncs the server-side title and message count.
-        if (effectiveConversationId) {
-          const nowIso = new Date().toISOString();
-          const summary: ConversationSummary = {
-            id: effectiveConversationId,
-            title: previousSummary?.title || trimmedText.slice(0, 100),
-            last_message: {
-              role: 'assistant',
-              content: assistantText || trimmedText,
-              created_at: nowIso,
-            },
-            message_count:
-              Math.max(
-                previousMessageCount,
-                previousSummary?.message_count ?? 0,
-              ) + 2,
-            created_at: previousSummary?.created_at || nowIso,
-            updated_at: nowIso,
-          };
-          setChats((current) => [
-            summary,
-            ...current.filter(
-              (conversation) => conversation.id !== summary.id,
-            ),
-          ]);
-        }
-
         if (result.incomplete) {
           setError(getStreamCutMessage(langRef.current));
         }
 
-        const visitorIdFinal = result.visitorId ?? visitorIdAtSend;
-        if (visitorIdFinal && !result.incomplete) {
-          await loadConversations(visitorIdFinal, false);
-        }
+        // Network side is complete; the typewriter keeps typing until
+        // the whole text is revealed, then finalizes below.
+        targetTextRef.current = result.text || targetTextRef.current;
+        streamEndedRef.current = true;
+
+        finalizeStreamRef.current = () => {
+          if (sequence !== requestSequence.current) return;
+
+          // The backend persists the assistant message only after the
+          // stream completes successfully. An aborted stream therefore
+          // stays local-only and may disappear after a page reload.
+          const assistantText = targetTextRef.current;
+
+          if (assistantText.trim()) {
+            setMessages((current) => [
+              ...current,
+              {
+                id: `assistant-${createId()}`,
+                role: 'assistant',
+                content: assistantText,
+                created_at: new Date().toISOString(),
+              },
+            ]);
+          }
+
+          // Update the sidebar entry immediately; the background refresh
+          // below then syncs the server-side title and message count.
+          if (effectiveConversationId) {
+            const nowIso = new Date().toISOString();
+            const summary: ConversationSummary = {
+              id: effectiveConversationId,
+              title: previousSummary?.title || trimmedText.slice(0, 100),
+              last_message: {
+                role: 'assistant',
+                content: assistantText || trimmedText,
+                created_at: nowIso,
+              },
+              message_count:
+                Math.max(
+                  previousMessageCount,
+                  previousSummary?.message_count ?? 0,
+                ) + 2,
+              created_at: previousSummary?.created_at || nowIso,
+              updated_at: nowIso,
+            };
+            setChats((current) => [
+              summary,
+              ...current.filter(
+                (conversation) => conversation.id !== summary.id,
+              ),
+            ]);
+          }
+
+          const visitorIdFinal = result.visitorId ?? visitorIdAtSend;
+          if (visitorIdFinal && !result.incomplete) {
+            void loadConversations(visitorIdFinal, false);
+          }
+
+          setIsGenerating(false);
+          setStreamingText('');
+          abortRef.current = null;
+          finalizeStreamRef.current = null;
+        };
       } catch (requestError) {
+        // Errors before the stream starts: the backend did not persist
+        // the user message either, so remove the optimistic one.
+        stopTicker();
+        finalizeStreamRef.current = null;
+        streamEndedRef.current = true;
+
         if (sequence !== requestSequence.current) return;
 
-        // Errors before the stream starts mean the backend did not
-        // persist the user message either, so remove the optimistic one.
         setMessages((current) =>
           current.filter((message) => message.id !== optimisticMessage.id),
         );
@@ -522,12 +620,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
 
         setError(getFriendlyError(requestError, lang));
-      } finally {
-        if (sequence === requestSequence.current) {
-          setIsGenerating(false);
-          setStreamingText('');
-          abortRef.current = null;
-        }
+        setIsGenerating(false);
+        setStreamingText('');
+        abortRef.current = null;
       }
     },
     [
@@ -540,6 +635,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       lang,
       loadConversations,
       messages,
+      startTicker,
+      stopTicker,
       visitorId,
     ],
   );
