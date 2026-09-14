@@ -48,18 +48,25 @@ apt-get install -y nginx curl ca-certificates gnupg python3 python3-venv python3
 
 # pydantic-core (pydantic==2.10.6) برای Python 3.14+ wheel آماده ندارد و بیلد از سورس
 # به Rust نیاز دارد؛ روی Ubuntu 26.04 نسخه پیش‌فرض python3 همان 3.14 است، پس
-# یک Python سازگار (3.12) را نصب و استفاده می‌کنیم.
+# یک Python سازگار (3.12 یا 3.13) را نصب و استفاده می‌کنیم.
 PY_VER="$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
 PYTHON_BIN="python3"
 if [[ "$PY_VER" != "3.11" && "$PY_VER" != "3.12" && "$PY_VER" != "3.13" ]]; then
-    if ! command -v python3.12 >/dev/null 2>&1; then
+    for v in 3.13 3.12; do
+        if command -v "python$v" >/dev/null 2>&1; then
+            PYTHON_BIN="python$v"
+            break
+        fi
+    done
+    if [[ "$PYTHON_BIN" == "python3" ]]; then
         echo "==> نصب Python 3.12 از PPA deadsnakes (نسخه پیش‌فرض: $PY_VER)"
         apt-get install -y software-properties-common
         add-apt-repository -y ppa:deadsnakes/ppa
         apt-get update
-        apt-get install -y python3.12 python3.12-venv python3.12-dev
+        apt-get install -y python3.12 python3.12-venv python3.12-dev \
+            || fail "نصب python3.12 ممکن نشد؛ PPA deadsnakes احتمالاً از این نسخه Ubuntu پشتیبانی نمی‌کند."
+        PYTHON_BIN="python3.12"
     fi
-    PYTHON_BIN="python3.12"
 fi
 echo "==> Python انتخاب‌شده برای venv ها: $PYTHON_BIN ($("$PYTHON_BIN" -V 2>&1))"
 
