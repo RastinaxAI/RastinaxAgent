@@ -46,28 +46,16 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y nginx curl ca-certificates gnupg python3 python3-venv python3-pip build-essential libpq-dev
 
-# pydantic-core (pydantic==2.10.6) برای Python 3.14+ wheel آماده ندارد و بیلد از سورس
-# به Rust نیاز دارد؛ روی Ubuntu 26.04 نسخه پیش‌فرض python3 همان 3.14 است، پس
-# یک Python سازگار (3.12 یا 3.13) را نصب و استفاده می‌کنیم.
-PY_VER="$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
+# Python سازگار را انتخاب کن: 3.12/3.13 اگر نصب باشد، وگرنه python3 پیش‌فرض.
+# نیازمندی‌ها (pydantic>=2.12) روی پایتون‌های 3.10 تا 3.14 با wheel آماده نصب می‌شوند
+# و به Rust یا PPA نیازی نیست.
 PYTHON_BIN="python3"
-if [[ "$PY_VER" != "3.11" && "$PY_VER" != "3.12" && "$PY_VER" != "3.13" ]]; then
-    for v in 3.13 3.12; do
-        if command -v "python$v" >/dev/null 2>&1; then
-            PYTHON_BIN="python$v"
-            break
-        fi
-    done
-    if [[ "$PYTHON_BIN" == "python3" ]]; then
-        echo "==> نصب Python 3.12 از PPA deadsnakes (نسخه پیش‌فرض: $PY_VER)"
-        apt-get install -y software-properties-common
-        add-apt-repository -y ppa:deadsnakes/ppa
-        apt-get update
-        apt-get install -y python3.12 python3.12-venv python3.12-dev \
-            || fail "نصب python3.12 ممکن نشد؛ PPA deadsnakes احتمالاً از این نسخه Ubuntu پشتیبانی نمی‌کند."
-        PYTHON_BIN="python3.12"
+for v in 3.13 3.12; do
+    if command -v "python$v" >/dev/null 2>&1; then
+        PYTHON_BIN="python$v"
+        break
     fi
-fi
+done
 echo "==> Python انتخاب‌شده برای venv ها: $PYTHON_BIN ($("$PYTHON_BIN" -V 2>&1))"
 
 NODE_MAJOR=0
@@ -85,14 +73,16 @@ NODE_MAJOR="$(/usr/bin/node -p 'process.versions.node.split(".")[0]')"
 (( NODE_MAJOR >= 20 )) || fail "نسخه Node.js باید حداقل 20 باشد. نسخه فعلی: $NODE_MAJOR"
 
 echo "==> نصب وابستگی‌های AI"
+rm -rf "$APP_DIR/.venv-ai"
 "$PYTHON_BIN" -m venv "$APP_DIR/.venv-ai"
 "$APP_DIR/.venv-ai/bin/python" -m pip install --upgrade pip
-"$APP_DIR/.venv-ai/bin/pip" install -r "$APP_DIR/AI/requirements.txt"
+"$APP_DIR/.venv-ai/bin/pip" install --retries 10 --timeout 60 -r "$APP_DIR/AI/requirements.txt"
 
 echo "==> نصب وابستگی‌های Django"
+rm -rf "$APP_DIR/.venv-server"
 "$PYTHON_BIN" -m venv "$APP_DIR/.venv-server"
 "$APP_DIR/.venv-server/bin/python" -m pip install --upgrade pip
-"$APP_DIR/.venv-server/bin/pip" install \
+"$APP_DIR/.venv-server/bin/pip" install --retries 10 --timeout 60 \
     -r "$APP_DIR/Server/requirements.txt" \
     -r "$APP_DIR/Server/requirements-production.txt"
 
