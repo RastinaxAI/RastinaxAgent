@@ -46,6 +46,23 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y nginx curl ca-certificates gnupg python3 python3-venv python3-pip build-essential libpq-dev
 
+# pydantic-core (pydantic==2.10.6) برای Python 3.14+ wheel آماده ندارد و بیلد از سورس
+# به Rust نیاز دارد؛ روی Ubuntu 26.04 نسخه پیش‌فرض python3 همان 3.14 است، پس
+# یک Python سازگار (3.12) را نصب و استفاده می‌کنیم.
+PY_VER="$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
+PYTHON_BIN="python3"
+if [[ "$PY_VER" != "3.11" && "$PY_VER" != "3.12" && "$PY_VER" != "3.13" ]]; then
+    if ! command -v python3.12 >/dev/null 2>&1; then
+        echo "==> نصب Python 3.12 از PPA deadsnakes (نسخه پیش‌فرض: $PY_VER)"
+        apt-get install -y software-properties-common
+        add-apt-repository -y ppa:deadsnakes/ppa
+        apt-get update
+        apt-get install -y python3.12 python3.12-venv python3.12-dev
+    fi
+    PYTHON_BIN="python3.12"
+fi
+echo "==> Python انتخاب‌شده برای venv ها: $PYTHON_BIN ($("$PYTHON_BIN" -V 2>&1))"
+
 NODE_MAJOR=0
 if [[ -x /usr/bin/node ]]; then
     NODE_MAJOR="$(/usr/bin/node -p 'process.versions.node.split(".")[0]')"
@@ -61,12 +78,12 @@ NODE_MAJOR="$(/usr/bin/node -p 'process.versions.node.split(".")[0]')"
 (( NODE_MAJOR >= 20 )) || fail "نسخه Node.js باید حداقل 20 باشد. نسخه فعلی: $NODE_MAJOR"
 
 echo "==> نصب وابستگی‌های AI"
-python3 -m venv "$APP_DIR/.venv-ai"
+"$PYTHON_BIN" -m venv "$APP_DIR/.venv-ai"
 "$APP_DIR/.venv-ai/bin/python" -m pip install --upgrade pip
 "$APP_DIR/.venv-ai/bin/pip" install -r "$APP_DIR/AI/requirements.txt"
 
 echo "==> نصب وابستگی‌های Django"
-python3 -m venv "$APP_DIR/.venv-server"
+"$PYTHON_BIN" -m venv "$APP_DIR/.venv-server"
 "$APP_DIR/.venv-server/bin/python" -m pip install --upgrade pip
 "$APP_DIR/.venv-server/bin/pip" install \
     -r "$APP_DIR/Server/requirements.txt" \
