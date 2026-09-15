@@ -37,10 +37,15 @@ DEBUG = env.bool(
 )
 
 
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-]
+ALLOWED_HOSTS = env.list(
+    "ALLOWED_HOSTS",
+    default=[
+        "127.0.0.1",
+        "localhost",
+        "ai.rastinax.com",
+        "195.177.255.98",
+    ],
+)
 
 
 # ---------------------------------------------------------
@@ -268,20 +273,34 @@ SPECTACULAR_SETTINGS = {
 # CORS
 # ---------------------------------------------------------
 
-CORS_ALLOWED_ORIGINS = [
-    # React / Next.js
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://ai.rastinax.com",
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=[
+        # React / Next.js
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://ai.rastinax.com",
 
-    # Vite
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://ai.rastinax.com",
+        # Vite
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://ai.rastinax.com",
+    ],
+)
 
-    #domain#
 
-]
+# Requests behind nginx arrive with an https Origin
+# while Django itself sees http; trusting the origins
+# below keeps CSRF checks passing for POSTs (admin).
+
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=[
+        "https://ai.rastinax.com",
+        "http://ai.rastinax.com",
+        "http://195.177.255.98",
+    ],
+)
 
 
 # Frontend must be able to read these headers
